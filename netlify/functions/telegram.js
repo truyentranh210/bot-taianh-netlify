@@ -2,7 +2,7 @@ import fetch from "node-fetch";
 
 const TOKEN = "8266374536:AAGCn-Hw0raOqGXrBymkTOmmFxZSR-EG120";
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
-const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen";
+const API_TRUYEN = "https://api-doctruyen210.netlify.app";
 const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
 
 // ======== HÀM GỬI TIN NHẮN / ẢNH ========
@@ -75,21 +75,39 @@ export const handler = async (event) => {
   // --- 📖 ĐỌC TRUYỆN ---
   if (callback === "read_all") {
     try {
-      const res = await fetch(`${API_TRUYEN}/all`);
-      const data = await res.json();
+      const res = await fetch(`${API_TRUYEN}/truyen/all`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+
+      if (!res.ok) {
+        console.error("❌ Lỗi truy cập API:", res.status, await res.text());
+        await sendMessage(chatId, `⚠️ Lỗi API: ${res.status}`);
+        return;
+      }
+
+      const data = await res.json().catch((e) => {
+        console.error("❌ Lỗi JSON:", e);
+        return null;
+      });
 
       if (!data || Object.keys(data).length === 0) {
+        console.error("⚠️ API trả về rỗng:", data);
         await sendMessage(chatId, "⚠️ Không tìm thấy dữ liệu truyện!");
         return;
       }
 
       const titles = Object.keys(data).slice(0, 10);
-      const buttons = titles.map((t) => [{ text: t, callback_data: `story|${t}` }]);
+      console.log("✅ Lấy được danh sách:", titles);
+
+      const buttons = titles.map((t) => [
+        { text: t.replace(/-/g, " ").slice(0, 40), callback_data: `story|${t}` },
+      ]);
 
       await sendMessage(chatId, "📚 *Danh sách truyện (Top 10)*", {
         reply_markup: { inline_keyboard: buttons },
       });
     } catch (e) {
+      console.error("❌ Lỗi tổng:", e);
       await sendMessage(chatId, `❌ Lỗi khi tải danh sách: ${e.message}`);
     }
   }
@@ -98,7 +116,7 @@ export const handler = async (event) => {
   if (callback?.startsWith("story|")) {
     const slug = callback.split("|")[1];
     try {
-      const res = await fetch(`${API_TRUYEN}/${slug}`);
+      const res = await fetch(`${API_TRUYEN}/truyen/${slug}`);
       const data = await res.json();
 
       if (!data.images || data.images.length === 0) {
