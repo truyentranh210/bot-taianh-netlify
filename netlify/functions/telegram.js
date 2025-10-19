@@ -2,10 +2,10 @@ import fetch from "node-fetch";
 
 const TOKEN = "8266374536:AAGCn-Hw0raOqGXrBymkTOmmFxZSR-EG120";
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
-const API_TRUYEN = "https://api-doctruyen210.netlify.app";
+const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen";
 const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
 
-// ======== HÀM GỬI TIN NHẮN / ẢNH ========
+// ========== HÀM GỬI TIN NHẮN ==========
 async function sendMessage(chatId, text, extra = {}) {
   await fetch(`${TELEGRAM_API}/sendMessage`, {
     method: "POST",
@@ -32,7 +32,7 @@ async function sendPhoto(chatId, photoUrl, caption = "") {
   });
 }
 
-// ======== MENU CHÍNH ========
+// ========== MENU CHÍNH ==========
 function mainMenu() {
   return {
     inline_keyboard: [
@@ -43,7 +43,7 @@ function mainMenu() {
   };
 }
 
-// ======== HANDLER CHÍNH ========
+// ========== HANDLER CHÍNH ==========
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 200, body: "Only POST accepted" };
@@ -75,66 +75,68 @@ export const handler = async (event) => {
   // --- 📖 ĐỌC TRUYỆN ---
   if (callback === "read_all") {
     try {
-      const res = await fetch(`${API_TRUYEN}/truyen/all`, {
-        headers: { "Cache-Control": "no-cache" },
-      });
+      const res = await fetch(`${API_TRUYEN}/all`);
+      const text = await res.text(); // Đọc thô để tránh lỗi Unicode
+      const data = JSON.parse(text);
 
-      if (!res.ok) {
-        console.error("❌ Lỗi truy cập API:", res.status, await res.text());
-        await sendMessage(chatId, `⚠️ Lỗi API: ${res.status}`);
+      if (!data || typeof data !== "object") {
+        console.error("⚠️ API /truyen/all không hợp lệ:", data);
+        await sendMessage(chatId, "⚠️ Không thể đọc dữ liệu từ API.");
         return;
       }
 
-      const data = await res.json().catch((e) => {
-        console.error("❌ Lỗi JSON:", e);
-        return null;
-      });
-
-      if (!data || Object.keys(data).length === 0) {
-        console.error("⚠️ API trả về rỗng:", data);
-        await sendMessage(chatId, "⚠️ Không tìm thấy dữ liệu truyện!");
+      const keys = Object.keys(data);
+      if (keys.length === 0) {
+        await sendMessage(chatId, "⚠️ Không có truyện nào trong danh sách.");
         return;
       }
 
-      const titles = Object.keys(data).slice(0, 10);
-      console.log("✅ Lấy được danh sách:", titles);
+      // Lấy 10 truyện đầu tiên
+      const top10 = keys.slice(0, 10);
 
-      const buttons = titles.map((t) => [
-        { text: t.replace(/-/g, " ").slice(0, 40), callback_data: `story|${t}` },
+      const buttons = top10.map((t) => [
+        { text: t.replace(/-/g, " ").slice(0, 50), callback_data: `story|${encodeURIComponent(t)}` },
       ]);
 
       await sendMessage(chatId, "📚 *Danh sách truyện (Top 10)*", {
         reply_markup: { inline_keyboard: buttons },
       });
-    } catch (e) {
-      console.error("❌ Lỗi tổng:", e);
-      await sendMessage(chatId, `❌ Lỗi khi tải danh sách: ${e.message}`);
+
+      console.log("✅ Lấy được danh sách:", top10);
+    } catch (err) {
+      console.error("❌ Lỗi đọc API:", err);
+      await sendMessage(chatId, `❌ Lỗi khi tải danh sách: ${err.message}`);
     }
   }
 
-  // --- 🖼️ HIỂN THỊ ẢNH TRUYỆN ---
+  // --- 🖼️ XEM TRUYỆN ---
   if (callback?.startsWith("story|")) {
-    const slug = callback.split("|")[1];
+    const slug = decodeURIComponent(callback.split("|")[1]);
     try {
-      const res = await fetch(`${API_TRUYEN}/truyen/${slug}`);
-      const data = await res.json();
+      const res = await fetch(`${API_TRUYEN}/all`);
+      const text = await res.text();
+      const data = JSON.parse(text);
 
-      if (!data.images || data.images.length === 0) {
+      const images = data[slug];
+      if (!images || images.length === 0) {
         await sendMessage(chatId, "❌ Không có ảnh trong truyện này.");
-      } else {
-        await sendPhoto(chatId, data.images[0], `📖 ${data.title}`);
+        return;
       }
-    } catch (e) {
-      await sendMessage(chatId, `⚠️ Lỗi khi tải truyện: ${e.message}`);
+
+      await sendPhoto(chatId, images[0], `📖 ${slug.replace(/-/g, " ")}`);
+      await sendMessage(chatId, `🖼️ Tổng số ảnh: ${images.length}`);
+    } catch (err) {
+      console.error("❌ Lỗi khi tải truyện:", err);
+      await sendMessage(chatId, `⚠️ Lỗi khi tải truyện: ${err.message}`);
     }
   }
 
-  // --- 🚀 YÊU CẦU LINK TẢI ZIP ---
+  // --- 🚀 YÊU CẦU LINK ZIP ---
   if (callback === "start_download") {
     await sendMessage(chatId, "📎 Gửi link truyện bạn muốn tải (HTTP hoặc HTTPS):");
   }
 
-  // --- NHẬN LINK VÀ TRẢ VỀ LINK ZIP ---
+  // --- XỬ LÝ LINK ZIP ---
   if (text?.startsWith("http")) {
     await sendMessage(chatId, "⏳ Đang xử lý link của bạn...");
 
@@ -151,7 +153,7 @@ export const handler = async (event) => {
       } else {
         await sendMessage(
           chatId,
-          `✅ Tải thành công *${imgs.length}* ảnh!\n\n📦 Link tải nhanh:\n${apiUrl}`,
+          `✅ Tải thành công *${imgs.length}* ảnh!\n\n📦 Link tải nhanh:\n${apiUrl}`
         );
       }
     } catch (e) {
