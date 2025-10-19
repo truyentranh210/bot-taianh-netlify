@@ -5,9 +5,7 @@ const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen";
 const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
 
-// =========================== //
-//         TIỆN ÍCH            //
-// =========================== //
+// ============ HÀM TIỆN ÍCH ============
 async function sendMessage(chatId, text, extra = {}) {
   const safeText = text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, "\\$1");
   await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -40,22 +38,18 @@ function safeCallback(title) {
   return "s|" + title.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
 }
 
-// =========================== //
-//         MENU CHÍNH          //
-// =========================== //
+// ============ MENU CHÍNH ============
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: "📖 Đọc truyện", callback_data: "read_all_v4" }],
-      [{ text: "🚀 Tải truyện ZIP", callback_data: "start_download_v4" }],
-      [{ text: "⏰ Time", callback_data: "show_time_v4" }],
+      [{ text: "📖 Đọc truyện", callback_data: "read_all_v5" }],
+      [{ text: "🚀 Tải truyện ZIP", callback_data: "start_download_v5" }],
+      [{ text: "⏰ Time", callback_data: "show_time_v5" }],
     ],
   };
 }
 
-// =========================== //
-//       XỬ LÝ CHÍNH          //
-// =========================== //
+// ============ HANDLER CHÍNH ============
 export const handler = async (event) => {
   if (event.httpMethod !== "POST")
     return { statusCode: 200, body: "Only POST accepted" };
@@ -68,7 +62,7 @@ export const handler = async (event) => {
 
   if (!chatId) return { statusCode: 200, body: "No chat id" };
 
-  // 🏠 Start
+  // 🏠 Lệnh /start
   if (text?.startsWith("/start")) {
     await sendMessage(
       chatId,
@@ -78,13 +72,13 @@ export const handler = async (event) => {
   }
 
   // 🕒 Time
-  if (callback === "show_time_v4") {
+  if (callback === "show_time_v5") {
     const vnTime = new Date(Date.now() + 7 * 3600 * 1000).toLocaleString("vi-VN");
     await sendMessage(chatId, `🕒 Giờ hiện tại (VN): ${vnTime}`);
   }
 
   // 📚 Danh sách truyện
-  if (callback === "read_all_v4") {
+  if (callback === "read_all_v5") {
     try {
       const res = await fetch(`${API_TRUYEN}/all`);
       const data = await res.json();
@@ -97,7 +91,10 @@ export const handler = async (event) => {
 
       const top10 = keys.slice(0, 10);
       const buttons = top10.map((t) => [
-        { text: t.replace(/[^a-zA-Z0-9\s]/g, " ").slice(0, 40), callback_data: safeCallback(t) },
+        {
+          text: t.replace(/[^a-zA-Z0-9\s]/g, " ").slice(0, 40),
+          callback_data: safeCallback(t),
+        },
       ]);
 
       console.log("✅ Lấy được danh sách:", top10);
@@ -111,7 +108,7 @@ export const handler = async (event) => {
     }
   }
 
-  // 🖼️ Xem truyện
+  // 🖼️ Xem truyện (có Next/Prev)
   if (callback?.startsWith("s|")) {
     const slug = callback.replace("s|", "");
     try {
@@ -121,21 +118,64 @@ export const handler = async (event) => {
         t.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) === slug
       );
       const imgs = data[key];
-
       if (!imgs || !imgs.length) {
         await sendMessage(chatId, "❌ Không có ảnh trong truyện này.");
         return;
       }
 
-      await sendPhoto(chatId, imgs[0], `📖 ${key}`);
-      await sendMessage(chatId, `🖼️ Tổng số ảnh: ${imgs.length}`);
+      await sendPhoto(chatId, imgs[0], `📖 ${key} (1 / ${imgs.length})`);
+      await sendMessage(chatId, "➡️ Chuyển trang:", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "➡️ Tiếp theo", callback_data: `next|${slug}|1` }],
+          ],
+        },
+      });
     } catch (e) {
       await sendMessage(chatId, `⚠️ Lỗi khi tải truyện: ${e.message}`);
     }
   }
 
+  // ➡️ Next / Prev
+  if (callback?.startsWith("next|") || callback?.startsWith("prev|")) {
+    const [action, slug, indexStr] = callback.split("|");
+    const index = parseInt(indexStr);
+    const res = await fetch(`${API_TRUYEN}/all`);
+    const data = await res.json();
+    const key = Object.keys(data).find((t) =>
+      t.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) === slug
+    );
+    const imgs = data[key];
+    if (!imgs) return;
+
+    let newIndex = index;
+    if (action === "next") newIndex++;
+    if (action === "prev") newIndex--;
+
+    if (newIndex < 0 || newIndex >= imgs.length) {
+      await sendMessage(chatId, "❌ Hết ảnh rồi!");
+      return;
+    }
+
+    await sendPhoto(
+      chatId,
+      imgs[newIndex],
+      `📖 ${key} (${newIndex + 1} / ${imgs.length})`
+    );
+
+    const buttons = [];
+    if (newIndex > 0)
+      buttons.push({ text: "⬅️ Trước", callback_data: `prev|${slug}|${newIndex}` });
+    if (newIndex < imgs.length - 1)
+      buttons.push({ text: "➡️ Tiếp", callback_data: `next|${slug}|${newIndex}` });
+
+    await sendMessage(chatId, "➡️ Chuyển trang:", {
+      reply_markup: { inline_keyboard: [buttons] },
+    });
+  }
+
   // 🚀 Bắt đầu tải ZIP
-  if (callback === "start_download_v4") {
+  if (callback === "start_download_v5") {
     await sendMessage(chatId, "📎 Gửi link truyện bạn muốn tải (HTTP hoặc HTTPS):");
   }
 
