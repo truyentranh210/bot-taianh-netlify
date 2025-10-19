@@ -1,12 +1,50 @@
-const fetch = require("node-fetch");
+import fetch from "node-fetch";
 
 const TOKEN = "8266374536:AAGCn-Hw0raOqGXrBymkTOmmFxZSR-EG120";
-const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
-const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen/";
-
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
+const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen";
+const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
 
-exports.handler = async (event) => {
+// ======== HÀM GỬI TIN NHẮN / ẢNH ========
+async function sendMessage(chatId, text, extra = {}) {
+  await fetch(`${TELEGRAM_API}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
+      ...extra,
+    }),
+  });
+}
+
+async function sendPhoto(chatId, photoUrl, caption = "") {
+  await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      photo: photoUrl,
+      caption,
+      parse_mode: "Markdown",
+    }),
+  });
+}
+
+// ======== MENU CHÍNH ========
+function mainMenu() {
+  return {
+    inline_keyboard: [
+      [{ text: "📖 Đọc truyện", callback_data: "read_all" }],
+      [{ text: "🚀 Tải truyện ZIP", callback_data: "start_download" }],
+      [{ text: "⏰ Time", callback_data: "show_time" }],
+    ],
+  };
+}
+
+// ======== HANDLER CHÍNH ========
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 200, body: "Only POST accepted" };
   }
@@ -17,109 +55,89 @@ exports.handler = async (event) => {
   const text = body.message?.text;
   const callback = body.callback_query?.data;
 
-  if (!chatId) return { statusCode: 200, body: "No chat" };
+  if (!chatId) return { statusCode: 200, body: "No chat id" };
 
-  async function sendMessage(text, extra = {}) {
-    await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "Markdown",
-        ...extra,
-      }),
-    });
-  }
-
-  async function sendPhoto(url, caption) {
-    await fetch(`${TELEGRAM_API}/sendPhoto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, photo: url, caption }),
-    });
-  }
-
-  async function sendDocument(buffer, filename, caption) {
-    await fetch(`${TELEGRAM_API}/sendDocument`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        document: buffer,
-        caption,
-      }),
-    });
-  }
-
-  // Menu chính
-  const menu = {
-    inline_keyboard: [
-      [{ text: "📖 Đọc truyện", callback_data: "read_all" }],
-      [{ text: "🚀 Tải truyện ZIP", callback_data: "start_download" }],
-      [{ text: "⏰ Time", callback_data: "show_time" }],
-    ],
-  };
-
-  // /start
+  // --- /start ---
   if (text?.startsWith("/start")) {
     await sendMessage(
-      "👋 Xin chào!\n\nTôi là bot đọc và tải truyện.\nChọn tính năng bên dưới 👇",
-      { reply_markup: menu }
+      chatId,
+      "👋 *Xin chào!*\n\nTôi là bot đọc và tải truyện.\nChọn tính năng bên dưới 👇",
+      { reply_markup: mainMenu() }
     );
   }
 
-  // Nút xem thời gian
+  // --- ⏰ XEM GIỜ ---
   if (callback === "show_time") {
     const vnTime = new Date(Date.now() + 7 * 60 * 60 * 1000).toLocaleString("vi-VN");
-    await sendMessage(`🕒 Giờ hiện tại (VN): ${vnTime}`);
+    await sendMessage(chatId, `🕒 Giờ hiện tại (VN): ${vnTime}`);
   }
 
-  // Danh sách truyện
+  // --- 📖 ĐỌC TRUYỆN ---
   if (callback === "read_all") {
-    const res = await fetch(`${API_TRUYEN}/all`);
-    const data = await res.json();
-    const titles = Object.keys(data).slice(0, 10);
-    const kb = titles.map((t) => [{ text: t, callback_data: `story|${t}` }]);
-    await sendMessage("📚 Danh sách truyện:", {
-      reply_markup: { inline_keyboard: kb },
-    });
-  }
+    try {
+      const res = await fetch(`${API_TRUYEN}/all`);
+      const data = await res.json();
 
-  // Đọc truyện cụ thể
-  if (callback?.startsWith("story|")) {
-    const slug = callback.split("|")[1];
-    const res = await fetch(`${API_TRUYEN}/${slug}`);
-    const data = await res.json();
+      if (!data || Object.keys(data).length === 0) {
+        await sendMessage(chatId, "⚠️ Không tìm thấy dữ liệu truyện!");
+        return;
+      }
 
-    if (!data.images?.length) {
-      await sendMessage("❌ Không có ảnh trong truyện này.");
-    } else {
-      await sendPhoto(data.images[0], `📖 ${data.title}`);
+      const titles = Object.keys(data).slice(0, 10);
+      const buttons = titles.map((t) => [{ text: t, callback_data: `story|${t}` }]);
+
+      await sendMessage(chatId, "📚 *Danh sách truyện (Top 10)*", {
+        reply_markup: { inline_keyboard: buttons },
+      });
+    } catch (e) {
+      await sendMessage(chatId, `❌ Lỗi khi tải danh sách: ${e.message}`);
     }
   }
 
-  // Tải ZIP
-  if (callback === "start_download") {
-    await sendMessage("📎 Gửi link truyện (HTTP hoặc HTTPS):");
+  // --- 🖼️ HIỂN THỊ ẢNH TRUYỆN ---
+  if (callback?.startsWith("story|")) {
+    const slug = callback.split("|")[1];
+    try {
+      const res = await fetch(`${API_TRUYEN}/${slug}`);
+      const data = await res.json();
+
+      if (!data.images || data.images.length === 0) {
+        await sendMessage(chatId, "❌ Không có ảnh trong truyện này.");
+      } else {
+        await sendPhoto(chatId, data.images[0], `📖 ${data.title}`);
+      }
+    } catch (e) {
+      await sendMessage(chatId, `⚠️ Lỗi khi tải truyện: ${e.message}`);
+    }
   }
 
-  // Nếu user gửi link
+  // --- 🚀 YÊU CẦU LINK TẢI ZIP ---
+  if (callback === "start_download") {
+    await sendMessage(chatId, "📎 Gửi link truyện bạn muốn tải (HTTP hoặc HTTPS):");
+  }
+
+  // --- NHẬN LINK VÀ TRẢ VỀ LINK ZIP ---
   if (text?.startsWith("http")) {
-    await sendMessage("⏳ Đang tải truyện, vui lòng đợi...");
+    await sendMessage(chatId, "⏳ Đang xử lý link của bạn...");
+
     try {
       const apiUrl = `${API_DOWNLOAD}${encodeURIComponent(text)}`;
       const resp = await fetch(apiUrl);
       const data = await resp.json();
+
+      const title = data.title || "Truyện không tên";
       const imgs = data.comic_images || [];
 
       if (!imgs.length) {
-        await sendMessage("❌ Không tìm thấy ảnh trong link này.");
+        await sendMessage(chatId, "❌ Không tìm thấy ảnh trong link này.");
       } else {
-        await sendMessage(`✅ Tải thành công ${imgs.length} ảnh!`);
+        await sendMessage(
+          chatId,
+          `✅ Tải thành công *${imgs.length}* ảnh!\n\n📦 Link tải nhanh:\n${apiUrl}`,
+        );
       }
     } catch (e) {
-      await sendMessage(`❌ Lỗi: ${e.message}`);
+      await sendMessage(chatId, `❌ Lỗi khi tải truyện: ${e.message}`);
     }
   }
 
