@@ -5,7 +5,7 @@ const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 const API_TRUYEN = "https://api-doctruyen210.netlify.app/truyen";
 const API_DOWNLOAD = "https://api-taianh-210.netlify.app/tai?url=";
 
-// ========== HÀM GỬI TIN NHẮN ==========
+// ========== GỬI TIN NHẮN / ẢNH ==========
 async function sendMessage(chatId, text, extra = {}) {
   await fetch(`${TELEGRAM_API}/sendMessage`, {
     method: "POST",
@@ -32,7 +32,7 @@ async function sendPhoto(chatId, photoUrl, caption = "") {
   });
 }
 
-// ========== HÀM MÃ HÓA / GIẢI MÃ ==========
+// ========== MÃ HÓA BASE64 ==========
 function encodeBase64(str) {
   return Buffer.from(str, "utf-8").toString("base64").slice(0, 60);
 }
@@ -48,9 +48,9 @@ function decodeBase64(str) {
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: "📖 Đọc truyện", callback_data: "read_all" }],
-      [{ text: "🚀 Tải truyện ZIP", callback_data: "start_download" }],
-      [{ text: "⏰ Time", callback_data: "show_time" }],
+      [{ text: "📖 Đọc truyện mới", callback_data: "read_all_v2" }],
+      [{ text: "🚀 Tải truyện ZIP mới", callback_data: "start_download_v2" }],
+      [{ text: "⏰ Time", callback_data: "show_time_v2" }],
     ],
   };
 }
@@ -79,16 +79,16 @@ export const handler = async (event) => {
   }
 
   // --- ⏰ XEM GIỜ ---
-  if (callback === "show_time") {
+  if (callback === "show_time_v2") {
     const vnTime = new Date(Date.now() + 7 * 60 * 60 * 1000).toLocaleString("vi-VN");
     await sendMessage(chatId, `🕒 Giờ hiện tại (VN): ${vnTime}`);
   }
 
   // --- 📖 ĐỌC TRUYỆN ---
-  if (callback === "read_all") {
+  if (callback === "read_all_v2") {
     try {
       const res = await fetch(`${API_TRUYEN}/all`);
-      const text = await res.text(); // raw để tránh lỗi unicode
+      const text = await res.text();
       const data = JSON.parse(text);
 
       if (!data || typeof data !== "object") {
@@ -105,9 +105,8 @@ export const handler = async (event) => {
       const top10 = keys.slice(0, 10);
       console.log("✅ Lấy được danh sách:", top10);
 
-      // tạo nút bấm an toàn
       const buttons = top10.map((t) => [
-        { text: t.replace(/-/g, " ").slice(0, 45), callback_data: `story|${encodeBase64(t)}` },
+        { text: t.replace(/-/g, " ").slice(0, 45), callback_data: `story_v2|${encodeBase64(t)}` },
       ]);
 
       await sendMessage(chatId, "📚 *Danh sách truyện (Top 10)*", {
@@ -120,7 +119,7 @@ export const handler = async (event) => {
   }
 
   // --- 🖼️ HIỂN THỊ TRUYỆN ---
-  if (callback?.startsWith("story|")) {
+  if (callback?.startsWith("story_v2|")) {
     const slugEncoded = callback.split("|")[1];
     const slug = decodeBase64(slugEncoded);
 
@@ -144,7 +143,7 @@ export const handler = async (event) => {
   }
 
   // --- 🚀 YÊU CẦU LINK ZIP ---
-  if (callback === "start_download") {
+  if (callback === "start_download_v2") {
     await sendMessage(chatId, "📎 Gửi link truyện bạn muốn tải (HTTP hoặc HTTPS):");
   }
 
