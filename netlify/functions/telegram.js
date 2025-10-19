@@ -32,6 +32,18 @@ async function sendPhoto(chatId, photoUrl, caption = "") {
   });
 }
 
+// ========== HÀM MÃ HÓA / GIẢI MÃ ==========
+function encodeBase64(str) {
+  return Buffer.from(str, "utf-8").toString("base64").slice(0, 60);
+}
+function decodeBase64(str) {
+  try {
+    return Buffer.from(str, "base64").toString("utf-8");
+  } catch {
+    return str;
+  }
+}
+
 // ========== MENU CHÍNH ==========
 function mainMenu() {
   return {
@@ -76,11 +88,10 @@ export const handler = async (event) => {
   if (callback === "read_all") {
     try {
       const res = await fetch(`${API_TRUYEN}/all`);
-      const text = await res.text(); // Đọc thô để tránh lỗi Unicode
+      const text = await res.text(); // raw để tránh lỗi unicode
       const data = JSON.parse(text);
 
       if (!data || typeof data !== "object") {
-        console.error("⚠️ API /truyen/all không hợp lệ:", data);
         await sendMessage(chatId, "⚠️ Không thể đọc dữ liệu từ API.");
         return;
       }
@@ -91,27 +102,28 @@ export const handler = async (event) => {
         return;
       }
 
-      // Lấy 10 truyện đầu tiên
       const top10 = keys.slice(0, 10);
+      console.log("✅ Lấy được danh sách:", top10);
 
+      // tạo nút bấm an toàn
       const buttons = top10.map((t) => [
-        { text: t.replace(/-/g, " ").slice(0, 50), callback_data: `story|${encodeURIComponent(t)}` },
+        { text: t.replace(/-/g, " ").slice(0, 45), callback_data: `story|${encodeBase64(t)}` },
       ]);
 
       await sendMessage(chatId, "📚 *Danh sách truyện (Top 10)*", {
         reply_markup: { inline_keyboard: buttons },
       });
-
-      console.log("✅ Lấy được danh sách:", top10);
     } catch (err) {
       console.error("❌ Lỗi đọc API:", err);
       await sendMessage(chatId, `❌ Lỗi khi tải danh sách: ${err.message}`);
     }
   }
 
-  // --- 🖼️ XEM TRUYỆN ---
+  // --- 🖼️ HIỂN THỊ TRUYỆN ---
   if (callback?.startsWith("story|")) {
-    const slug = decodeURIComponent(callback.split("|")[1]);
+    const slugEncoded = callback.split("|")[1];
+    const slug = decodeBase64(slugEncoded);
+
     try {
       const res = await fetch(`${API_TRUYEN}/all`);
       const text = await res.text();
@@ -136,7 +148,7 @@ export const handler = async (event) => {
     await sendMessage(chatId, "📎 Gửi link truyện bạn muốn tải (HTTP hoặc HTTPS):");
   }
 
-  // --- XỬ LÝ LINK ZIP ---
+  // --- NHẬN LINK ZIP ---
   if (text?.startsWith("http")) {
     await sendMessage(chatId, "⏳ Đang xử lý link của bạn...");
 
